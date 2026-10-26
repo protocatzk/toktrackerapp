@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="de" data-theme="dark">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>toktracker – Whitelist-Freigabe erforderlich</title>
+    <script>
+        (function() {
+            try {
+                const savedTheme = localStorage.getItem("toktracker_theme") || "dark";
+                document.documentElement.setAttribute("data-theme", savedTheme);
+            } catch (e) {}
+        })();
+    </script>
+    <link rel="icon" type="image/jpeg" href="/pictures/bot_avatar.jpg" />
+    <link rel="stylesheet" href="/static/style.css?v=2.5.2" />
+    <style>
+        body {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background: var(--bg-body, #0a0e17);
+            padding: 20px;
+        }
+        .lock-card {
+            background: var(--bg-surface, #121721);
+            border: 1px solid var(--border-color, #232c3d);
+            border-radius: 12px;
+            max-width: 520px;
+            width: 100%;
+            padding: 32px 28px;
+            text-align: center;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+            position: relative;
+            overflow: hidden;
+        }
+        .lock-card::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, #a855f7, #6366f1, #38bdf8);
+        }
+        .lock-icon-wrap {
+            width: 64px;
+            height: 64px;
+            margin: 0 auto 16px;
+            border-radius: 50%;
+            background: rgba(168, 85, 247, 0.12);
+            border: 1px solid rgba(168, 85, 247, 0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 30px;
+            color: #c084fc;
+        }
+        .lock-title {
+            font-size: 20px;
+            font-weight: 800;
+            color: var(--text-strong, #f8fafc);
+            margin-bottom: 6px;
+        }
+        .lock-badge {
+            display: inline-block;
+            background: rgba(168, 85, 247, 0.15);
+            color: #c084fc;
+            border: 1px solid rgba(168, 85, 247, 0.35);
+            font-size: 11px;
+            font-weight: 700;
+            padding: 3px 10px;
+            border-radius: 20px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 18px;
+        }
+        .lock-desc {
+            font-size: 13.5px;
+            color: var(--text-muted, #94a3b8);
+            line-height: 1.6;
+            margin-bottom: 24px;
+        }
+        .user-info-box {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-subtle, #1e2638);
+            border-radius: 8px;
+            padding: 14px 16px;
+            margin-bottom: 24px;
+            text-align: left;
+            font-size: 12.5px;
+        }
+        .user-info-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+        .user-info-row:last-child {
+            margin-bottom: 0;
+        }
+        .actions-row {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+    </style>
+</head>
+<body>
+
+<div class="lock-card">
+    <div class="lock-icon-wrap">🔒</div>
+    <h1 class="lock-title">Chat Intelligence &amp; Wortwolken</h1>
+    <div class="lock-badge">Whitelist Exklusiv</div>
+
+    <p class="lock-desc">
+        Dieser erweiterte Analysebereich mit interaktiver Wortwolke, Stream-Chatlogs und Sentiment-Phrasen ist exklusiv für <strong>freigeschaltete Whitelist-Nutzer</strong> und Administratoren reserviert.
+    </p>
+
+    <div class="user-info-box">
+        <div class="user-info-row">
+            <span style="color: var(--text-muted);">Angemeldeter Account:</span>
+            <strong style="color: #38bdf8; font-family: var(--font-mono);">{{ sub }}</strong>
+        </div>
+        <div class="user-info-row">
+            <span style="color: var(--text-muted);">Whitelist-Status:</span>
+            <span style="color: #f59e0b; font-weight: 700;">⏳ Ausstehend (nicht freigeschaltet)</span>
+        </div>
+    </div>
+
+    <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 22px;">
+        💡 <em>Ein Administrator kann deinen Account über den Telegram-Bot (<code>/allow</code>) oder im Web-Admin-Panel freischalten.</em>
+    </p>
+
+    <div class="actions-row">
+        <button type="button" class="btn primary" onclick="window.location.reload();">
+            🔄 Freigabe erneut prüfen
+        </button>
+        <a href="/" class="btn">
+            ← Zurück zur Startseite
+        </a>
+        <a href="/logout" class="btn" style="color: #ef4444;">
+            Abmelden
+        </a>
+    </div>
+</div>
+
+</body>
+</html>

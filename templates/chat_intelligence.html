@@ -1,0 +1,1598 @@
+<!DOCTYPE html>
+<html lang="de" data-theme="dark">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>toktracker – Chat Intelligence, Wortwolke & Stream-Log Viewer</title>
+
+    <script>
+        (function() {
+            try {
+                const savedTheme = localStorage.getItem("toktracker_theme") || "dark";
+                document.documentElement.setAttribute("data-theme", savedTheme);
+            } catch (e) {}
+        })();
+    </script>
+    <link rel="icon" type="image/jpeg" href="/pictures/bot_avatar.jpg" />
+    <link rel="stylesheet" href="/static/style.css?v=2.5.2" />
+
+    <style>
+        /* ==================================================================== */
+        /* CHAT INTELLIGENCE STYLES                                            */
+        /* ==================================================================== */
+        :root {
+            --ci-purple: #a855f7;
+            --ci-purple-glow: rgba(168, 85, 247, 0.25);
+            --ci-cyan: #38bdf8;
+            --ci-gold: #f59e0b;
+            --ci-green: #10b981;
+            --ci-pink: #ec4899;
+        }
+
+        .ci-container {
+            max-width: 1440px;
+            margin: 0 auto;
+            padding: 18px 24px 60px;
+        }
+
+        /* Top Bar & Branding */
+        .ci-header-box {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 16px;
+            margin-bottom: 20px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .ci-brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .ci-brand-logo {
+            width: 44px;
+            height: 44px;
+            border-radius: 10px;
+            object-fit: cover;
+            border: 2px solid #8b5cf6;
+            box-shadow: 0 0 14px rgba(139, 92, 246, 0.35);
+        }
+
+        .ci-brand-title {
+            font-size: 20px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            color: var(--text-strong);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .ci-badge {
+            font-size: 10.5px;
+            font-weight: 800;
+            padding: 3px 8px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            font-family: var(--font-mono);
+        }
+
+        .ci-badge-purple {
+            background: linear-gradient(135deg, #9333ea 0%, #3b82f6 100%);
+            color: #fff;
+            box-shadow: 0 2px 8px rgba(147, 51, 234, 0.3);
+        }
+
+        .ci-nav-links {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 13px;
+        }
+
+        .ci-nav-links a {
+            color: var(--text-muted);
+            text-decoration: none;
+            padding: 5px 10px;
+            border-radius: 6px;
+            transition: all 0.15s ease;
+            border: 1px solid transparent;
+        }
+
+        .ci-nav-links a:hover {
+            color: var(--text-main);
+            background: var(--bg-surface);
+            border-color: var(--border-color);
+        }
+
+        /* Filter Controls Card */
+        .ci-filter-bar {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md, 8px);
+            padding: 14px 18px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 14px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+
+        .ci-filter-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .ci-filter-label {
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+        }
+
+        .ci-select {
+            background: var(--bg-subtle);
+            color: var(--text-main);
+            border: 1px solid var(--border-color);
+            padding: 7px 12px;
+            border-radius: 6px;
+            font-size: 12.5px;
+            font-weight: 600;
+            outline: none;
+            cursor: pointer;
+            transition: border-color 0.15s ease;
+        }
+
+        .ci-select:focus {
+            border-color: #8b5cf6;
+        }
+
+        .ci-period-pills {
+            display: inline-flex;
+            background: var(--bg-subtle);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 2px;
+            gap: 2px;
+        }
+
+        .ci-period-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            padding: 5px 10px;
+            font-size: 11.5px;
+            font-weight: 700;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .ci-period-btn:hover {
+            color: var(--text-main);
+        }
+
+        .ci-period-btn.active {
+            background: #8b5cf6;
+            color: #ffffff;
+            box-shadow: 0 2px 6px rgba(139, 92, 246, 0.4);
+        }
+
+        /* KPI Cards Grid */
+        .ci-kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+            gap: 14px;
+            margin-bottom: 22px;
+        }
+
+        .ci-kpi-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md, 8px);
+            padding: 14px 18px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            transition: transform 0.15s ease, border-color 0.15s ease;
+        }
+
+        .ci-kpi-card:hover {
+            transform: translateY(-2px);
+            border-color: var(--border-strong);
+        }
+
+        .ci-kpi-card::after {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, #38bdf8, #8b5cf6);
+        }
+
+        .ci-kpi-title {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .ci-kpi-val {
+            font-size: 26px;
+            font-weight: 800;
+            font-family: var(--font-mono, "JetBrains Mono", Consolas, monospace);
+            color: var(--text-main);
+            letter-spacing: -0.5px;
+        }
+
+        .ci-kpi-sub {
+            font-size: 11.5px;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+
+        /* Middle 2-Column Section: Word Cloud & Top Phrases */
+        .ci-analytics-split {
+            display: grid;
+            grid-template-columns: 1.15fr 0.85fr;
+            gap: 18px;
+            margin-bottom: 24px;
+        }
+
+        @media (max-width: 1024px) {
+            .ci-analytics-split {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .ci-box {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md, 8px);
+            padding: 16px 20px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        }
+
+        .ci-box-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 14px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .ci-box-title {
+            font-size: 15px;
+            font-weight: 750;
+            color: var(--text-strong);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* Interactive Word Cloud */
+        .word-cloud-container {
+            min-height: 280px;
+            max-height: 420px;
+            overflow-y: auto;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: center;
+            gap: 8px 12px;
+            padding: 16px 12px;
+            background: rgba(0, 0, 0, 0.15);
+            border-radius: 8px;
+            border: 1px dashed var(--border-color);
+        }
+
+        .cloud-word {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            cursor: pointer;
+            padding: 4px 10px;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+            user-select: none;
+            line-height: 1.2;
+        }
+
+        .cloud-word:hover {
+            transform: scale(1.12);
+            background: rgba(139, 92, 246, 0.25);
+            border-color: #a855f7;
+            box-shadow: 0 4px 12px rgba(168, 85, 247, 0.35);
+            z-index: 10;
+        }
+
+        .cloud-word.active-filter {
+            background: #a855f7 !important;
+            color: #fff !important;
+            border-color: #c084fc !important;
+            box-shadow: 0 0 14px rgba(168, 85, 247, 0.5) !important;
+        }
+
+        .cloud-word-count {
+            font-size: 10px;
+            font-family: var(--font-mono);
+            opacity: 0.75;
+            background: rgba(0,0,0,0.3);
+            padding: 1px 4px;
+            border-radius: 3px;
+        }
+
+        /* Scaled Weights */
+        .w-top   { font-size: 32px; font-weight: 900; color: #f59e0b; }
+        .w-high  { font-size: 24px; font-weight: 800; color: #ec4899; }
+        .w-med   { font-size: 18px; font-weight: 700; color: #38bdf8; }
+        .w-low   { font-size: 14px; font-weight: 600; color: #a78bfa; }
+        .w-base  { font-size: 12px; font-weight: 500; color: #94a3b8; }
+
+        /* Top Phrases List */
+        .phrases-tabs {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 12px;
+        }
+
+        .phrases-tab-btn {
+            background: var(--bg-subtle);
+            border: 1px solid var(--border-color);
+            color: var(--text-muted);
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .phrases-tab-btn.active {
+            background: var(--bg-card);
+            color: #38bdf8;
+            border-color: #38bdf8;
+        }
+
+        .phrases-list {
+            display: flex;
+            flex-direction: column;
+            gap: 7px;
+            max-height: 380px;
+            overflow-y: auto;
+            padding-right: 4px;
+        }
+
+        .phrase-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 12px;
+            background: var(--bg-subtle);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .phrase-item:hover {
+            border-color: #38bdf8;
+            background: rgba(56, 189, 248, 0.08);
+            transform: translateX(3px);
+        }
+
+        .phrase-rank {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            font-weight: 800;
+            color: var(--text-muted);
+            min-width: 24px;
+        }
+
+        .phrase-text {
+            font-size: 12.5px;
+            font-weight: 700;
+            color: var(--text-main);
+            flex: 1;
+            margin: 0 10px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .phrase-meta {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-family: var(--font-mono);
+            font-size: 11px;
+        }
+
+        .phrase-count-badge {
+            background: rgba(56, 189, 248, 0.15);
+            color: #38bdf8;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 700;
+        }
+
+        .phrase-bar {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            height: 2px;
+            background: linear-gradient(90deg, #38bdf8, #8b5cf6);
+            opacity: 0.6;
+        }
+
+        /* Emojis Grid */
+        .emojis-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(65px, 1fr));
+            gap: 8px;
+            max-height: 380px;
+            overflow-y: auto;
+            padding: 4px;
+        }
+
+        .emoji-tile {
+            background: var(--bg-subtle);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 8px 4px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .emoji-tile:hover {
+            border-color: #f59e0b;
+            transform: scale(1.08);
+            background: rgba(245, 158, 11, 0.1);
+        }
+
+        .emoji-char {
+            font-size: 22px;
+            line-height: 1;
+            margin-bottom: 4px;
+        }
+
+        .emoji-count {
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            font-weight: 700;
+            color: var(--text-muted);
+        }
+
+        /* Log Viewer Section */
+        .ci-viewer-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md, 8px);
+            overflow: hidden;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+        }
+
+        .ci-viewer-header {
+            padding: 14px 20px;
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .ci-viewer-search-wrap {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex: 1;
+            min-width: 260px;
+        }
+
+        .ci-search-input {
+            width: 100%;
+            max-width: 340px;
+            background: var(--bg-subtle);
+            color: var(--text-main);
+            border: 1px solid var(--border-color);
+            padding: 7px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            outline: none;
+            transition: border-color 0.15s ease;
+        }
+
+        .ci-search-input:focus {
+            border-color: #8b5cf6;
+        }
+
+        .active-filter-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(168, 85, 247, 0.2);
+            color: #c084fc;
+            border: 1px solid #a855f7;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 700;
+            font-family: var(--font-mono);
+        }
+
+        .active-filter-pill button {
+            background: transparent;
+            border: none;
+            color: #c084fc;
+            cursor: pointer;
+            font-size: 13px;
+            line-height: 1;
+            padding: 0;
+        }
+
+        .ci-messages-stream {
+            height: 520px;
+            overflow-y: auto;
+            padding: 16px 20px;
+            background: var(--bg-surface);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .chat-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 7px 10px;
+            border-radius: 6px;
+            background: var(--bg-subtle);
+            border: 1px solid transparent;
+            transition: background 0.12s ease;
+        }
+
+        .chat-row:hover {
+            background: var(--bg-row-hover, rgba(255,255,255,0.04));
+            border-color: var(--border-color);
+        }
+
+        .chat-row.whale-whale {
+            border-left: 3px solid #f59e0b;
+            background: rgba(245, 158, 11, 0.05);
+        }
+        .chat-row.whale-shark {
+            border-left: 3px solid #38bdf8;
+            background: rgba(56, 189, 248, 0.05);
+        }
+        .chat-row.whale-dolphin {
+            border-left: 3px solid #10b981;
+            background: rgba(16, 185, 129, 0.05);
+        }
+
+        .chat-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 1px solid var(--border-color);
+            flex-shrink: 0;
+            background: var(--bg-card);
+        }
+
+        .chat-body {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .chat-meta-line {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 2px;
+            font-size: 11.5px;
+        }
+
+        .chat-username {
+            font-weight: 750;
+            color: var(--text-strong);
+            text-decoration: none;
+        }
+
+        .chat-streamer-tag {
+            font-size: 9.5px;
+            font-family: var(--font-mono);
+            font-weight: 700;
+            background: rgba(139, 92, 246, 0.15);
+            color: #c084fc;
+            padding: 1px 5px;
+            border-radius: 3px;
+        }
+
+        .chat-time {
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            color: var(--text-muted);
+            margin-left: auto;
+        }
+
+        .chat-text-line {
+            font-size: 13px;
+            color: var(--text-main);
+            word-break: break-word;
+            line-height: 1.4;
+        }
+
+        .highlight-term {
+            background: rgba(245, 158, 11, 0.3);
+            color: #fef08a;
+            padding: 0 2px;
+            border-radius: 2px;
+            font-weight: 700;
+        }
+
+        .ci-viewer-footer {
+            padding: 12px 20px;
+            background: var(--bg-card);
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .btn-export {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: var(--bg-subtle);
+            color: var(--text-main);
+            border: 1px solid var(--border-color);
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .btn-export:hover {
+            border-color: #10b981;
+            color: #10b981;
+        }
+
+        /* Database Viewer Table Styles */
+        .ci-table-wrap {
+            height: 540px;
+            overflow-y: auto;
+            overflow-x: auto;
+            background: var(--bg-surface);
+        }
+
+        .ci-db-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            font-size: 12px;
+        }
+
+        .ci-db-table thead th {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            background: var(--bg-card);
+            color: var(--text-muted);
+            font-size: 11px;
+            font-weight: 750;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 10px 14px;
+            border-bottom: 2px solid var(--border-color);
+            white-space: nowrap;
+            text-align: left;
+        }
+
+        .ci-db-table thead th.text-right {
+            text-align: right;
+        }
+
+        .ci-db-table tbody tr {
+            transition: background 0.12s ease;
+            cursor: pointer;
+        }
+
+        .ci-db-table tbody tr:hover td {
+            background: rgba(168, 85, 247, 0.05);
+        }
+
+        .ci-db-table tbody tr.row-whale td {
+            background: rgba(245, 158, 11, 0.03);
+        }
+
+        .ci-db-table tbody tr.row-shark td {
+            background: rgba(56, 189, 248, 0.03);
+        }
+
+        .ci-db-table tbody tr.row-dolphin td {
+            background: rgba(16, 185, 129, 0.03);
+        }
+
+        .ci-db-table tbody td {
+            padding: 8px 14px;
+            border-bottom: 1px solid var(--border-color);
+            vertical-align: middle;
+            color: var(--text-main);
+        }
+
+        /* Columns */
+        .col-id { width: 85px; font-family: var(--font-mono); }
+        .col-time { width: 135px; font-family: var(--font-mono); white-space: nowrap; color: var(--text-muted); }
+        .col-streamer { width: 140px; white-space: nowrap; }
+        .col-user { width: 180px; min-width: 160px; }
+        .col-tier { width: 100px; white-space: nowrap; }
+        .col-comment { min-width: 280px; word-break: break-word; line-height: 1.4; }
+        .col-actions { width: 130px; text-align: right; white-space: nowrap; }
+
+        /* User Cell */
+        .user-cell-box {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .user-avatar-sm {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 1px solid var(--border-color);
+            background: var(--bg-card);
+            flex-shrink: 0;
+        }
+
+        .user-info-text {
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+
+        .user-nick {
+            font-weight: 700;
+            color: var(--text-strong);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 130px;
+            font-size: 12px;
+        }
+
+        .user-handle-btn {
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            color: #a855f7;
+            background: transparent;
+            border: none;
+            padding: 0;
+            cursor: pointer;
+            text-align: left;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 130px;
+            text-decoration: none;
+            transition: color 0.15s ease;
+        }
+
+        .user-handle-btn:hover {
+            color: #c084fc;
+            text-decoration: underline;
+        }
+
+        /* Tier Badges */
+        .tier-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 10px;
+            font-weight: 800;
+            padding: 2px 7px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            font-family: var(--font-mono);
+            letter-spacing: 0.3px;
+        }
+
+        .tier-badge-whale { background: rgba(245, 158, 11, 0.18); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.4); }
+        .tier-badge-shark { background: rgba(56, 189, 248, 0.18); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); }
+        .tier-badge-vip { background: rgba(16, 185, 129, 0.18); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.4); }
+        .tier-badge-default { background: var(--bg-subtle); color: var(--text-muted); border: 1px solid var(--border-color); }
+
+        /* Row Actions */
+        .row-actions-group {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            justify-content: flex-end;
+        }
+
+        .btn-row-action {
+            background: var(--bg-subtle);
+            border: 1px solid var(--border-color);
+            color: var(--text-muted);
+            width: 26px;
+            height: 26px;
+            border-radius: 5px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.15s ease;
+            text-decoration: none;
+        }
+
+        .btn-row-action:hover {
+            color: var(--text-main);
+            border-color: #8b5cf6;
+            background: rgba(139, 92, 246, 0.12);
+        }
+
+        /* View Switcher */
+        .ci-view-switcher {
+            display: inline-flex;
+            background: var(--bg-subtle);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 2px;
+            gap: 2px;
+        }
+
+        .ci-view-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            padding: 5px 11px;
+            border-radius: 4px;
+            font-size: 11.5px;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            transition: all 0.15s ease;
+        }
+
+        .ci-view-btn:hover {
+            color: var(--text-main);
+        }
+
+        .ci-view-btn.active {
+            background: #8b5cf6;
+            color: #ffffff;
+            box-shadow: 0 2px 6px rgba(139, 92, 246, 0.35);
+        }
+
+        /* Tool Buttons */
+        .btn-ci-tool {
+            background: var(--bg-subtle);
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+            padding: 5px 10px;
+            border-radius: 6px;
+            font-size: 11.5px;
+            font-weight: 600;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.15s ease;
+        }
+
+        .btn-ci-tool:hover {
+            border-color: #8b5cf6;
+            color: #fff;
+        }
+
+        .btn-ci-tool.sm {
+            padding: 4px 8px;
+            font-size: 11px;
+        }
+
+        .ci-select-sm {
+            background: var(--bg-subtle);
+            color: var(--text-main);
+            border: 1px solid var(--border-color);
+            padding: 5px 8px;
+            border-radius: 6px;
+            font-size: 11.5px;
+            font-weight: 600;
+            outline: none;
+            cursor: pointer;
+        }
+
+        .ci-select-sm:focus {
+            border-color: #8b5cf6;
+        }
+
+        /* Active User Filter Pill */
+        .active-user-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(56, 189, 248, 0.15);
+            color: #38bdf8;
+            border: 1px solid rgba(56, 189, 248, 0.45);
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 700;
+            font-family: var(--font-mono);
+        }
+
+        .active-user-pill button {
+            background: transparent;
+            border: none;
+            color: #38bdf8;
+            cursor: pointer;
+            font-size: 13px;
+            line-height: 1;
+            padding: 0;
+        }
+
+        /* Pagination Bar */
+        .ci-pagination-bar {
+            padding: 10px 18px;
+            background: var(--bg-card);
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 12px;
+            color: var(--text-muted);
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .ci-pagination-controls {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .ci-pag-btn {
+            background: var(--bg-subtle);
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+            padding: 4px 10px;
+            border-radius: 5px;
+            font-size: 11.5px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .ci-pag-btn:hover:not(:disabled) {
+            background: rgba(139, 92, 246, 0.15);
+            border-color: #8b5cf6;
+            color: #fff;
+        }
+
+        .ci-pag-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        .ci-pag-info {
+            font-size: 11.5px;
+            margin: 0 4px;
+        }
+
+        /* Inspector Modal */
+        .insp-modal {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.75);
+            backdrop-filter: blur(4px);
+            z-index: 10000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .insp-modal-content {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            width: 100%;
+            max-width: 650px;
+            max-height: 90vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+            overflow: hidden;
+        }
+
+        .insp-header {
+            padding: 16px 20px;
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .insp-title {
+            margin: 0;
+            font-size: 15px;
+            font-weight: 800;
+            color: var(--text-strong);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .insp-body {
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .insp-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+
+        @media (max-width: 600px) {
+            .insp-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .insp-field {
+            background: var(--bg-subtle);
+            border: 1px solid var(--border-color);
+            padding: 8px 12px;
+            border-radius: 6px;
+        }
+
+        .insp-field-label {
+            font-size: 10px;
+            text-transform: uppercase;
+            font-weight: 750;
+            color: var(--text-muted);
+            letter-spacing: 0.4px;
+            margin-bottom: 3px;
+        }
+
+        .insp-field-val {
+            font-size: 12.5px;
+            font-weight: 600;
+            color: var(--text-main);
+            word-break: break-all;
+        }
+
+        .insp-message-box {
+            background: var(--bg-subtle);
+            border: 1px solid var(--border-color);
+            padding: 12px 14px;
+            border-radius: 8px;
+            font-size: 13.5px;
+            line-height: 1.5;
+            color: var(--text-main);
+            word-break: break-word;
+        }
+
+        .insp-json-block {
+            background: #090d16;
+            color: #e2e8f0;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 12px;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            max-height: 180px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+            margin: 0;
+        }
+
+        .insp-footer {
+            padding: 14px 20px;
+            background: var(--bg-card);
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        /* Floating Toast Feedback */
+        .ci-toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            background: #10b981;
+            color: #ffffff;
+            padding: 10px 18px;
+            border-radius: 8px;
+            font-size: 12.5px;
+            font-weight: 700;
+            box-shadow: 0 8px 24px rgba(16, 185, 129, 0.4);
+            z-index: 10001;
+            display: none;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .ci-footer-nav {
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid var(--border-color);
+            text-align: center;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .ci-footer-nav a {
+            color: var(--text-muted);
+            text-decoration: none;
+            margin: 0 8px;
+        }
+
+        .ci-footer-nav a:hover {
+            color: #38bdf8;
+        }
+    </style>
+</head>
+<body>
+    <div class="ci-container">
+        <!-- 1. Header & Navigation -->
+        <header class="ci-header-box">
+            <div class="ci-brand">
+                <img src="/pictures/bot_avatar.jpg" alt="TokTracker" class="ci-brand-logo" />
+                <div>
+                    <div class="ci-brand-title">
+                        <span>TokTracker</span>
+                        <span class="ci-badge ci-badge-purple">CHAT INTELLIGENCE</span>
+                        <span class="ci-badge" style="background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.35);">🔒 WHITELIST EXKLUSIV</span>
+                    </div>
+                    <div class="muted" style="font-size: 11.5px; margin-top: 2px;">
+                        Wortwolke · Häufige Phrasen &amp; Emojis · Stream-Chat Log-Viewer
+                    </div>
+                </div>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+                <span class="pill" style="font-size: 11px; background: rgba(255,255,255,0.05); padding: 4px 10px; border-radius: 4px; border: 1px solid var(--border-color);">
+                    Freigabe: <strong style="color: #38bdf8;">{{ "👑 ADMIN" if is_admin else "🛡️ WHITELIST" }}</strong> ({{ admin_sub }})
+                </span>
+                <nav class="ci-nav-links">
+                    <a href="/admin">← Admin-Dashboard</a>
+                    <a href="/donor-radar">🐋 Spender-Radar</a>
+                    <a href="/site-analytics">📊 Web-Analysen</a>
+                    <a href="/logout" style="color:#ef4444;">Abmelden</a>
+                </nav>
+            </div>
+        </header>
+
+        <!-- 2. Controls & Dropdowns Bar -->
+        <section class="ci-filter-bar">
+            <!-- Streamer & Session Selectors -->
+            <div class="ci-filter-group">
+                <div style="display:flex; flex-direction:column; gap:4px;">
+                    <span class="ci-filter-label">Streamer</span>
+                    <select id="selectStreamer" class="ci-select" style="min-width: 170px;">
+                        <option value="">Alle Streamer</option>
+                    </select>
+                </div>
+
+                <div style="display:flex; flex-direction:column; gap:4px;">
+                    <span class="ci-filter-label">Stream-Session (Live oder Archiv)</span>
+                    <select id="selectSession" class="ci-select" style="min-width: 280px; max-width: 380px;">
+                        <option value="">Alle Streams des Zeitraums</option>
+                    </select>
+                </div>
+
+                <div style="display:flex; flex-direction:column; gap:4px;">
+                    <span class="ci-filter-label">Zeitraum</span>
+                    <div class="ci-period-pills" id="periodPills">
+                        <button type="button" class="ci-period-btn" data-period="today">Heute</button>
+                        <button type="button" class="ci-period-btn active" data-period="24h">24h</button>
+                        <button type="button" class="ci-period-btn" data-period="7d">7 Tage</button>
+                        <button type="button" class="ci-period-btn" data-period="30d">30 Tage</button>
+                        <button type="button" class="ci-period-btn" data-period="all">Alle</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Additional Controls (Min Length, Live Toggle, Exports) -->
+            <div class="ci-filter-group">
+                <div style="display:flex; flex-direction:column; gap:4px;">
+                    <span class="ci-filter-label">Min. Wortlänge</span>
+                    <select id="selectMinWordLen" class="ci-select" style="width: 80px;">
+                        <option value="2">2</option>
+                        <option value="3" selected>3</option>
+                        <option value="4">4</option>
+                        <option value="5">5</option>
+                    </select>
+                </div>
+
+                <div style="display:flex; align-items:flex-end; gap:8px;">
+                    <button type="button" id="btnRefreshAnalysis" class="btn-export" title="Analyse neu laden">
+                        <span>🔄 Aktualisieren</span>
+                    </button>
+
+                    <div style="position:relative; display:inline-block;">
+                        <button type="button" id="btnExportMenu" class="btn-export" style="background:#10b981; color:#fff; border-color:#10b981;">
+                            <span>📥 Chat Exportieren</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 3. KPI Ribbon -->
+        <section class="ci-kpi-grid">
+            <div class="ci-kpi-card">
+                <div class="ci-kpi-title">
+                    <span>Erfasste Chatnachrichten</span>
+                    <span>💬</span>
+                </div>
+                <div class="ci-kpi-val" id="kpiTotalMsgs">-</div>
+                <div class="ci-kpi-sub" id="kpiAvgChars">Durchschnitt: - Zeichen</div>
+            </div>
+
+            <div class="ci-kpi-card">
+                <div class="ci-kpi-title">
+                    <span>Aktive Chatter</span>
+                    <span>👥</span>
+                </div>
+                <div class="ci-kpi-val" id="kpiUniqueChatters">-</div>
+                <div class="ci-kpi-sub" id="kpiDiversity">Chatter-Quote: - %</div>
+            </div>
+
+            <div class="ci-kpi-card">
+                <div class="ci-kpi-title">
+                    <span>Spender- &amp; VIP-Nachrichten</span>
+                    <span>🐋</span>
+                </div>
+                <div class="ci-kpi-val" id="kpiWhaleMsgs" style="color: #a855f7;">-</div>
+                <div class="ci-kpi-sub" id="kpiWhaleShare">- % aller Nachrichten</div>
+            </div>
+
+            <div class="ci-kpi-card">
+                <div class="ci-kpi-title">
+                    <span>Top-Chatter im Stream</span>
+                    <span>👑</span>
+                </div>
+                <div class="ci-kpi-val" id="kpiTopChatter" style="font-size: 19px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">-</div>
+                <div class="ci-kpi-sub" id="kpiTopChatterCount">- Nachrichten</div>
+            </div>
+        </section>
+
+        <!-- 4. Word Cloud & Phrases Split -->
+        <section class="ci-analytics-split">
+            <!-- Left: Wortwolke -->
+            <div class="ci-box">
+                <div class="ci-box-header">
+                    <div class="ci-box-title">
+                        <span>🔥 Interaktive Wortwolke</span>
+                        <span id="wordCloudCountBadge" class="ci-badge" style="background: rgba(168, 85, 247, 0.15); color: #c084fc;">0 Wörter</span>
+                    </div>
+                    <div style="font-size: 11px; color: var(--text-muted);">
+                        Klicke auf ein Wort zum Filtern
+                    </div>
+                </div>
+
+                <div class="word-cloud-container" id="wordCloudContainer">
+                    <div style="color: var(--text-muted); font-size: 13px;">Lade Wortwolke...</div>
+                </div>
+            </div>
+
+            <!-- Right: Top Phrasen & Emojis -->
+            <div class="ci-box">
+                <div class="ci-box-header">
+                    <div class="ci-box-title">
+                        <span>⚡ Häufige Phrasen &amp; Emojis</span>
+                    </div>
+                    <div class="phrases-tabs">
+                        <button type="button" class="phrases-tab-btn active" id="tabBtnPhrases">Phrasen (2-3)</button>
+                        <button type="button" class="phrases-tab-btn" id="tabBtnEmojis">Top Emojis</button>
+                    </div>
+                </div>
+
+                <!-- Phrasen Liste -->
+                <div class="phrases-list" id="phrasesListContainer">
+                    <div style="color: var(--text-muted); font-size: 13px; padding: 12px;">Lade Phrasen...</div>
+                </div>
+
+                <!-- Emojis Grid -->
+                <div class="emojis-grid" id="emojisGridContainer" style="display: none;">
+                    <div style="color: var(--text-muted); font-size: 13px; padding: 12px;">Lade Emojis...</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 5. Stream Chat Log & Database Viewer -->
+        <section class="ci-viewer-card" id="chatViewerSection">
+            <div class="ci-viewer-header">
+                <div class="ci-viewer-search-wrap">
+                    <input type="text" id="inputChatSearch" class="ci-search-input" placeholder="Chat &amp; Datenbank durchsuchen (z.B. @nutzername, Text, #ID)..." />
+                    
+                    <div id="activeFilterPill" style="display: none;">
+                        <span class="active-filter-pill">
+                            <span id="activeFilterText">löwe</span>
+                            <button type="button" id="btnClearWordFilter" title="Wortfilter entfernen">&times;</button>
+                        </span>
+                    </div>
+
+                    <div id="activeUserFilterPill" style="display: none;">
+                        <span class="active-user-pill">
+                            <span>👤 @<span id="activeUserFilterText">username</span></span>
+                            <button type="button" id="btnClearUserFilter" title="Benutzerfilter entfernen">&times;</button>
+                        </span>
+                    </div>
+                </div>
+
+                <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                    <!-- View Mode Switcher -->
+                    <div class="ci-view-switcher" role="group" aria-label="Ansicht umschalten">
+                        <button type="button" id="btnViewModeTable" class="ci-view-btn active" title="Tabellarische Datenbank-Ansicht">
+                            <span>📊 Tabellen-Grid</span>
+                        </button>
+                        <button type="button" id="btnViewModeStream" class="ci-view-btn" title="Chat-Stream Ansicht">
+                            <span>💬 Stream</span>
+                        </button>
+                    </div>
+
+                    <!-- Spender-Tier Filter -->
+                    <select id="selectTierFilter" class="ci-select-sm" title="Rang filtern">
+                        <option value="">Alle Ränge</option>
+                        <option value="whales">🐋 Nur Spender (Wale/VIPs)</option>
+                        <option value="whale">🐋 Nur Top-Wale</option>
+                        <option value="shark">🦈 Nur Sharks</option>
+                        <option value="dolphin">🐬 Nur Dolphins</option>
+                    </select>
+
+                    <!-- Sort Order Toggle -->
+                    <button type="button" id="btnToggleSort" class="btn-ci-tool sm" title="Sortierung umkehren (DESC / ASC)">
+                        <span id="sortOrderLabel">⏱ Neueste (DESC)</span>
+                    </button>
+
+                    <!-- Live Tail Toggle -->
+                    <button type="button" id="btnToggleLiveTail" class="btn-ci-tool sm" title="Live-Polling pausieren/starten">
+                        <span id="liveTailDot" style="width:8px; height:8px; border-radius:50%; background:#10b981; display:inline-block;"></span>
+                        <span id="liveTailText">Live: An</span>
+                    </button>
+
+                    <!-- Export Modal Button -->
+                    <button type="button" id="btnExportMenu" class="btn-ci-tool sm" title="Gefilterte Chatdaten exportieren">
+                        <span>📥 Exportieren</span>
+                    </button>
+
+                    <span class="mono muted" id="viewerMsgCountMeta" style="font-size:11.5px;">0 Einträge</span>
+                </div>
+            </div>
+
+            <!-- Tabellarische Datenbank-Grid Ansicht (Default) -->
+            <div class="ci-table-wrap" id="chatTableContainer">
+                <table class="ci-db-table">
+                    <thead>
+                        <tr>
+                            <th class="col-id" title="Nachrichten-ID">#ID</th>
+                            <th class="col-time" title="Zeitpunkt der Nachricht">Zeitpunkt</th>
+                            <th class="col-streamer" title="Kanal / Streamer">Streamer</th>
+                            <th class="col-user" title="TikTok-Benutzer (Klicken zum Filtern)">Nutzer / Absender</th>
+                            <th class="col-tier" title="Spender-Rang (Whale, Shark, VIP)">Rang</th>
+                            <th class="col-comment" title="Chat-Nachricht">Chat-Nachricht</th>
+                            <th class="col-actions text-right" title="Aktionen">Aktionen</th>
+                        </tr>
+                    </thead>
+                    <tbody id="chatTableBody">
+                        <tr>
+                            <td colspan="7" style="text-align: center; padding: 48px; color: var(--text-muted);">
+                                Lade Datenbank-Einträge...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Chat-Stream / Bubble Ansicht (Alternativ) -->
+            <div class="ci-messages-stream" id="chatStreamArea" style="display: none;">
+                <div style="color: var(--text-muted); font-size: 13px; text-align: center; margin-top: 40px;">
+                    Lade Chat-Logs...
+                </div>
+            </div>
+
+            <!-- Footer: Pagination Bar für Tabellen-Ansicht -->
+            <div class="ci-pagination-bar" id="ciPaginationBar">
+                <div class="mono" style="font-size: 11.5px;">
+                    Zeige <strong id="pagRangeStart">0</strong> - <strong id="pagRangeEnd">0</strong> von <strong id="pagTotalCount">0</strong> Einträgen
+                </div>
+
+                <div class="ci-pagination-controls">
+                    <button type="button" id="btnPagFirst" class="ci-pag-btn" title="Erste Seite">⏮ Erste</button>
+                    <button type="button" id="btnPagPrev" class="ci-pag-btn" title="Vorherige Seite">◀ Zurück</button>
+                    <span class="ci-pag-info mono">Seite <strong id="pagCurrentPage">1</strong> von <strong id="pagTotalPages">1</strong></span>
+                    <button type="button" id="btnPagNext" class="ci-pag-btn" title="Nächste Seite">Weiter ▶</button>
+                    <button type="button" id="btnPagLast" class="ci-pag-btn" title="Letzte Seite">Letzte ⏭</button>
+                </div>
+
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <label style="font-size:11.5px; color:var(--text-muted);">Zeilen:</label>
+                    <select id="selectPageSize" class="ci-select-sm" title="Einträge pro Seite">
+                        <option value="25">25</option>
+                        <option value="50" selected>50</option>
+                        <option value="100">100</option>
+                        <option value="200">200</option>
+                    </select>
+                    <button type="button" id="btnRefreshGrid" class="btn-ci-tool sm" title="Tabelle neu laden">🔄</button>
+                </div>
+            </div>
+
+            <!-- Footer: Ältere Nachrichten laden für Stream-Ansicht -->
+            <div class="ci-viewer-footer" id="ciStreamFooter" style="display: none;">
+                <button type="button" id="btnLoadOlderMsgs" class="btn-export" style="font-size:11.5px;">
+                    ⬆ Ältere Nachrichten laden
+                </button>
+                <span id="streamSessionInfoText" class="mono" style="font-size:11px;">Keine Session gewählt</span>
+            </div>
+        </section>
+
+        <!-- 6. Footer Navigation -->
+        <footer class="ci-footer-nav">
+            <a href="/admin">Admin-Dashboard</a> ·
+            <a href="/donor-radar">🐋 Spender-Radar &amp; Chatlogs</a> ·
+            <a href="/chat-intelligence">💬 Chat Intelligence &amp; Wortwolke</a> ·
+            <a href="/public">Öffentliches User-Portal</a> ·
+            <a href="/site-analytics">Web- &amp; Bot-Analysen</a> ·
+            <a href="/logout">Abmelden</a>
+        </footer>
+    </div>
+
+    <!-- Datensatz-Inspektor Modal Dialog -->
+    <div class="insp-modal" id="recordInspectorModal" role="dialog" aria-modal="true" aria-labelledby="inspModalTitle">
+        <div class="insp-modal-content">
+            <div class="insp-header">
+                <h3 class="insp-title" id="inspModalTitle">
+                    <span>🔍 Datensatz-Inspektor</span>
+                    <span class="mono muted" style="font-size: 13px;" id="inspModalSub">#0</span>
+                </h3>
+                <button type="button" id="btnCloseInspectorModal" style="background:transparent; border:none; color:var(--text-muted); font-size:22px; cursor:pointer;">&times;</button>
+            </div>
+            
+            <div class="insp-body">
+                <!-- 2-Spalten Metadata Grid -->
+                <div class="insp-grid">
+                    <div class="insp-field">
+                        <div class="insp-field-label">Nachrichten-ID</div>
+                        <div class="insp-field-val mono" id="inspId">-</div>
+                    </div>
+                    <div class="insp-field">
+                        <div class="insp-field-label">Zeitpunkt</div>
+                        <div class="insp-field-val mono" id="inspTimestamp">-</div>
+                    </div>
+                    <div class="insp-field">
+                        <div class="insp-field-label">Streamer (Kanal)</div>
+                        <div class="insp-field-val" id="inspStreamer">-</div>
+                    </div>
+                    <div class="insp-field">
+                        <div class="insp-field-label">Stream-Session-ID</div>
+                        <div class="insp-field-val mono" id="inspSession">-</div>
+                    </div>
+                    <div class="insp-field">
+                        <div class="insp-field-label">TikTok Username</div>
+                        <div class="insp-field-val mono" id="inspUsername">-</div>
+                    </div>
+                    <div class="insp-field">
+                        <div class="insp-field-label">Nickname</div>
+                        <div class="insp-field-val" id="inspNickname">-</div>
+                    </div>
+                    <div class="insp-field">
+                        <div class="insp-field-label">Spender-Rang / Status</div>
+                        <div class="insp-field-val" id="inspTier">-</div>
+                    </div>
+                    <div class="insp-field">
+                        <div class="insp-field-label">TikTok User-ID</div>
+                        <div class="insp-field-val mono" id="inspUserId" style="font-size:11px;">-</div>
+                    </div>
+                </div>
+
+                <!-- Volltext-Nachricht -->
+                <div>
+                    <div class="insp-field-label" style="margin-bottom:6px;">💬 Chat-Nachricht</div>
+                    <div class="insp-message-box" id="inspComment"></div>
+                </div>
+
+                <!-- Rohdaten (JSON) -->
+                <div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                        <div class="insp-field-label" style="margin:0;">📦 Rohdaten (JSON)</div>
+                        <button type="button" id="btnCopyRawJson" class="btn-ci-tool sm" style="font-size:10.5px; padding:2px 8px;">📋 JSON Kopieren</button>
+                    </div>
+                    <pre class="insp-json-block" id="inspRawJson">{}</pre>
+                </div>
+            </div>
+
+            <div class="insp-footer">
+                <button type="button" id="btnFilterByThisUser" class="btn-ci-tool" style="background:#8b5cf6; color:#fff; border-color:#8b5cf6;">
+                    <span>👤 Nach diesem Nutzer filtern</span>
+                </button>
+                <a href="#" target="_blank" rel="noopener noreferrer" id="btnOpenTikTokProfile" class="btn-ci-tool">
+                    <span>↗ TikTok-Profil öffnen</span>
+                </a>
+                <button type="button" id="btnDismissInspector" class="btn-ci-tool">
+                    <span>Schließen</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Export Modal Dialog -->
+    <div id="exportModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:9999; align-items:center; justify-content:center;">
+        <div style="background:var(--bg-surface); border:1px solid var(--border-color); border-radius:10px; width:90%; max-width:440px; padding:20px; box-shadow:0 10px 30px rgba(0,0,0,0.5);">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+                <h3 style="margin:0; font-size:16px;">📥 Chatdaten Exportieren</h3>
+                <button type="button" id="btnCloseExportModal" style="background:transparent; border:none; color:var(--text-muted); font-size:20px; cursor:pointer;">&times;</button>
+            </div>
+            <p style="font-size:12.5px; color:var(--text-muted); margin-bottom:16px;">
+                Wähle das gewünschte Format für den Export der gefilterten Chatnachrichten:
+            </p>
+            <div style="display:flex; flex-direction:column; gap:10px;">
+                <button type="button" id="btnDownloadCsv" class="btn-export" style="justify-content:center; padding:10px; background:#10b981; color:#fff; border-color:#10b981;">
+                    📊 Als CSV-Datei herunterladen (Excel / Sheets)
+                </button>
+                <button type="button" id="btnDownloadJson" class="btn-export" style="justify-content:center; padding:10px; background:rgba(139, 92, 246, 0.2); border-color:#8b5cf6; color:#c084fc;">
+                    📦 Als strukturierte JSON-Datei herunterladen (.json)
+                </button>
+                <button type="button" id="btnDownloadTxt" class="btn-export" style="justify-content:center; padding:10px;">
+                    📄 Als formatierte Textdatei herunterladen (.txt)
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification Popup -->
+    <div class="ci-toast" id="ciToast">
+        <span>✓</span>
+        <span id="ciToastText">Kopiert!</span>
+    </div>
+
+    <script src="/static/chat_intelligence.js?v=1.0.0"></script>
+</body>
+</html>

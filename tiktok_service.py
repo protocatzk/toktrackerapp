@@ -24,8 +24,44 @@ try:
         RoomUserSeqEvent,
         LinkMicBattleEvent,
         LinkMicArmiesEvent,
+        CommentEvent,
     )
     TIKTOKLIVE_AVAILABLE = True
+
+    try:
+        from TikTokLive.client.web.routes.fetch_room_id_api import FetchRoomIdAPIRoute
+
+        _orig_parse_room_id = FetchRoomIdAPIRoute.parse_room_id
+
+        def _safe_parse_room_id(data: dict) -> str:
+            room_id = _orig_parse_room_id(data)
+            if not room_id or str(room_id).strip() in ("", "0"):
+                raise UserOfflineError("Streamer ist aktuell offline (leere Room-ID von TikTok Webcast API).")
+            return room_id
+
+        FetchRoomIdAPIRoute.parse_room_id = staticmethod(_safe_parse_room_id)
+
+        _orig_fetch_user_room_data = FetchRoomIdAPIRoute.fetch_user_room_data
+
+        async def _safe_fetch_user_room_data(web: Any, unique_id: str) -> dict:
+            resp: httpx.Response = await web.get(
+                url=WebDefaults.tiktok_app_url + "/api-live/user/room/",
+                extra_params={"uniqueId": unique_id, "sourceType": 54},
+            )
+            if not resp.content or not resp.content.strip():
+                raise UserOfflineError(f"Streamer @{unique_id} ist offline (leere Antwort von TikTok Live-API).")
+            try:
+                data = resp.json()
+            except Exception:
+                raise UserOfflineError(f"Streamer @{unique_id} ist offline (kein aktiver Live-JSON-Feed).")
+            if data.get("message") == "user_not_found":
+                raise UserOfflineError(f"Streamer @{unique_id} existiert nicht oder streamt nicht.")
+            return data
+
+        FetchRoomIdAPIRoute.fetch_user_room_data = staticmethod(_safe_fetch_user_room_data)
+    except Exception as _patch_err:
+        logging.getLogger("toktracker.tiktok").debug("TikTokLive Route-Patching Hinweis: %s", _patch_err)
+
 except ImportError:
     TIKTOKLIVE_AVAILABLE = False
     AgeRestrictedError = Exception  # type: ignore
@@ -33,6 +69,29 @@ except ImportError:
     WebDefaults = None  # type: ignore
     LinkMicBattleEvent = None  # type: ignore
     LinkMicArmiesEvent = None  # type: ignore
+    CommentEvent = None  # type: ignore
+
+
+def is_streamer_offline_error(exc: Exception) -> bool:
+    """
+    Erkennt zuverlässig, ob ein Fehler in Wirklichkeit bedeutet, dass der Streamer schlicht offline ist:
+    - UserOfflineError: Standard TikTokLive Exception.
+    - ValueError ('invalid literal for int() with base 10: \'\''): TikTok API liefert leere roomId für Offline-User.
+    - JSONDecodeError ('Expecting value: line 1 column 1 (char 0)'): TikTok liefert leeren Body für Offline-User.
+    - FailedParseRoomIdError: SIGI_STATE HTML-Tag fehlt, weil kein aktiver Stream existiert.
+    - UserNotFoundError: Streamer existiert nicht oder hat keinen aktiven Live-Stream.
+    """
+    if isinstance(exc, UserOfflineError):
+        return True
+    err_str = str(exc)
+    err_cls = type(exc).__name__
+    if isinstance(exc, ValueError) and "invalid literal for int()" in err_str:
+        return True
+    if "JSONDecodeError" in err_cls or ("Expecting value" in err_str and "column 1" in err_str):
+        return True
+    if err_cls in ("FailedParseRoomIdError", "UserNotFoundError"):
+        return True
+    return False
 
 from config import config
 from database import (
@@ -46,7 +105,12 @@ from database import (
     record_battle_start,
     update_battle_scores,
     record_battle_finish,
+    batch_record_chat_messages,
+    cleanup_old_chat_messages,
+    get_known_donor_tiers,
+    get_donor_tier,
 )
+
 
 logger = logging.getLogger("tiktok_service")
 if not logger.handlers:
@@ -249,6 +313,41 @@ class WorkerDiagnostics:
     coins_received_session: int = 0
 
 
+_known_donor_tiers_cache: Dict[str, str] = {}
+_known_donor_tiers_lock = threading.Lock()
+_last_donor_cache_refresh = 0.0
+
+
+def get_cached_donor_tier(username: str) -> str:
+    global _last_donor_cache_refresh
+    clean = username.strip().lstrip("@").lower()
+    now = time.monotonic()
+    if now - _last_donor_cache_refresh > 180.0:
+        refresh_donor_tier_cache()
+    with _known_donor_tiers_lock:
+        return _known_donor_tiers_cache.get(clean, "")
+
+
+def update_cached_donor_tier(username: str, tier: str) -> None:
+    if not tier:
+        return
+    clean = username.strip().lstrip("@").lower()
+    with _known_donor_tiers_lock:
+        _known_donor_tiers_cache[clean] = tier
+
+
+def refresh_donor_tier_cache() -> None:
+    global _last_donor_cache_refresh
+    try:
+        tiers = get_known_donor_tiers()
+        with _known_donor_tiers_lock:
+            _known_donor_tiers_cache.clear()
+            _known_donor_tiers_cache.update(tiers)
+        _last_donor_cache_refresh = time.monotonic()
+    except Exception as exc:
+        logger.debug("Fehler beim Aktualisieren des Spender-Tier-Caches: %s", exc)
+
+
 class StreamerWorker:
     STREAK_TIMEOUT_SECONDS = 12.0
 
@@ -275,7 +374,14 @@ class StreamerWorker:
         self._gift_catalog_cache: Dict[int, Tuple[str, int, str]] = {}
         self._pending_streaks: Dict[str, PendingStreak] = {}
         self._active_battle: Optional[Dict[str, Any]] = None
+        self._owner_user_id: str = ""
+        self._last_finished_battle_id: str = ""
+        self._last_finished_time: float = 0.0
         self._recent_logs: Deque[Dict[str, str]] = deque(maxlen=50)
+        self._chat_buffer: List[Dict[str, Any]] = []
+        self._chat_buffer_lock = threading.Lock()
+        self._last_viewer_db_update = 0.0
+        self._last_saved_viewers = 0
 
     def _log(self, level: str, message: str) -> None:
         ts = datetime.now().isoformat(timespec="seconds")
@@ -355,6 +461,7 @@ class StreamerWorker:
 
         self._finish_active_battle_if_any()
         self._flush_all_pending_streaks()
+        self._flush_chat_buffer()
         if self.diag.session_id:
             end_stream_session(self.streamer_id, self.diag.session_id)
             self.diag.session_id = None
@@ -389,9 +496,11 @@ class StreamerWorker:
         finally:
             self._finish_active_battle_if_any()
             self._flush_all_pending_streaks()
+            self._flush_chat_buffer()
             if self.diag.session_id:
                 end_stream_session(self.streamer_id, self.diag.session_id)
                 self.diag.session_id = None
+
             if self._preserve_db_state:
                 update_streamer_runtime_state(
                     self.username,
@@ -510,33 +619,35 @@ class StreamerWorker:
                     streak_watchdog.cancel()
                     self._flush_all_pending_streaks()
 
-            except UserOfflineError:
-                with self._lock:
-                    self.diag.state = "polling_offline"
-                    self.diag.current_viewers = 0
-                if self.diag.session_id:
-                    end_stream_session(self.streamer_id, self.diag.session_id)
-                    self.diag.session_id = None
+            except Exception as exc:
+                if is_streamer_offline_error(exc):
+                    with self._lock:
+                        self.diag.state = "polling_offline"
+                        self.diag.current_viewers = 0
+                        self.diag.last_error = ""
+                    if self.diag.session_id:
+                        end_stream_session(self.streamer_id, self.diag.session_id)
+                        self.diag.session_id = None
 
-                update_streamer_runtime_state(
-                    self.username,
-                    is_live=False,
-                    is_tracking=self.diag.auto_reconnect,
-                    current_viewers=0,
-                    last_error="",
-                )
+                    update_streamer_runtime_state(
+                        self.username,
+                        is_live=False,
+                        is_tracking=self.diag.auto_reconnect,
+                        current_viewers=0,
+                        last_error="",
+                    )
 
-                if not self.diag.auto_reconnect or self._stop_event.is_set():
-                    self._log("INFO", "Streamer ist offline (Einmal-Check beendet).")
-                    break
+                    if not self.diag.auto_reconnect or self._stop_event.is_set():
+                        self._log("INFO", "Streamer ist offline (Einmal-Check beendet).")
+                        break
 
-                poll_sec = max(15, int(get_settings().get("poll_interval_seconds", 45)))
-                self._log(
-                    "INFO",
-                    f"Streamer aktuell offline – nächster Live-Check in {poll_sec}s.",
-                )
-                await self._interruptible_sleep(float(poll_sec))
-                continue
+                    poll_sec = max(15, int(get_settings().get("poll_interval_seconds", 45)))
+                    self._log(
+                        "INFO",
+                        f"Streamer aktuell offline – nächster Live-Check in {poll_sec}s.",
+                    )
+                    await self._interruptible_sleep(float(poll_sec))
+                    continue
 
             except Exception as exc:
                 err_name = type(exc).__name__
@@ -565,7 +676,10 @@ class StreamerWorker:
 
             finally:
                 try:
-                    await client.close()
+                    if getattr(client, "connected", False):
+                        await client.disconnect(close_client=True)
+                    else:
+                        await client.close()
                 except Exception:
                     pass
                 with self._lock:
@@ -586,6 +700,15 @@ class StreamerWorker:
         while not self._stop_event.is_set():
             await asyncio.sleep(2.0)
             self._flush_expired_streaks()
+            self._flush_chat_buffer()
+
+    def _persist_viewer_stats(self, viewers: int, session_id: Optional[int]) -> None:
+        try:
+            update_streamer_runtime_state(self.username, current_viewers=viewers)
+            if session_id:
+                update_stream_session_metrics(session_id, viewer_count=viewers)
+        except Exception as exc:
+            logger.debug("[@%s] Fehler beim Persistieren der Zuschauerzahlen: %s", self.username, exc)
 
     def _register_handlers(self, client: Any) -> None:
         @client.on(ConnectEvent)
@@ -603,6 +726,7 @@ class StreamerWorker:
                 title = str(room_info.get("title") or "")
                 owner = room_info.get("owner") or {}
                 if isinstance(owner, dict):
+                    self._owner_user_id = str(owner.get("id") or owner.get("id_str") or owner.get("user_id") or "")
                     display_name = owner.get("nickname")
                     avatar_thumb = owner.get("avatar_thumb") or {}
                     if isinstance(avatar_thumb, dict):
@@ -644,18 +768,27 @@ class StreamerWorker:
             now_iso = datetime.now().isoformat(timespec="seconds")
             with self._lock:
                 self.diag.current_viewers = viewers
+                is_new_peak = viewers > self.diag.peak_viewers
                 self.diag.peak_viewers = max(self.diag.peak_viewers, viewers)
                 self.diag.last_event_at = now_iso
                 sess_id = self.diag.session_id
 
-            update_streamer_runtime_state(self.username, current_viewers=viewers)
-            if sess_id:
-                update_stream_session_metrics(sess_id, viewer_count=viewers)
+            now_mono = time.monotonic()
+            should_update_db = (
+                (now_mono - self._last_viewer_db_update >= 25.0) or
+                is_new_peak or
+                (abs(viewers - self._last_saved_viewers) >= 50)
+            )
+            if should_update_db:
+                self._last_viewer_db_update = now_mono
+                self._last_saved_viewers = viewers
+                await asyncio.to_thread(self._persist_viewer_stats, viewers, sess_id)
 
         @client.on(LiveEndEvent)
         async def on_live_end(event: LiveEndEvent) -> None:
             self._finish_active_battle_if_any()
             self._flush_all_pending_streaks()
+            self._flush_chat_buffer()
             with self._lock:
                 sess_id = self.diag.session_id
                 self.diag.session_id = None
@@ -671,6 +804,7 @@ class StreamerWorker:
         async def on_disconnect(event: DisconnectEvent) -> None:
             self._finish_active_battle_if_any()
             self._flush_all_pending_streaks()
+            self._flush_chat_buffer()
             with self._lock:
                 self.diag.current_viewers = 0
             update_streamer_runtime_state(
@@ -684,6 +818,15 @@ class StreamerWorker:
                 self._process_gift_event(event)
             except Exception as exc:
                 self._log("ERROR", f"Fehler bei GiftEvent-Verarbeitung: {exc}")
+
+        if TIKTOKLIVE_AVAILABLE and CommentEvent is not None:
+            @client.on(CommentEvent)
+            async def on_comment(event: CommentEvent) -> None:
+                try:
+                    self._process_comment_event(event)
+                except Exception:
+                    pass
+
 
         if TIKTOKLIVE_AVAILABLE and LinkMicBattleEvent is not None:
             @client.on(LinkMicBattleEvent)
@@ -708,6 +851,8 @@ class StreamerWorker:
         """
         matchup = {
             "battle_mode": "1v1",
+            "streamer_user_id": "",
+            "streamer_username": self.username,
             "opponent_username": "",
             "opponent_display_name": "",
             "opponent_avatar_url": "",
@@ -728,12 +873,28 @@ class StreamerWorker:
 
         anchors_raw = anchors_info or getattr(event, "anchors_info", None)
         if not anchors_raw:
+            # Fallback: Auswertung über armies oder team_armies falls anchors_info nicht mitgesendet wurde
+            armies = getattr(event, "armies", None)
+            team_armies = getattr(event, "team_armies", None)
+            if armies:
+                a_items = list(armies.values()) if isinstance(armies, dict) else list(armies)
+                if len(a_items) == 3:
+                    matchup["battle_mode"] = "1v1v1"
+                elif len(a_items) >= 4:
+                    matchup["battle_mode"] = "1v1v1v1"
+            elif team_armies:
+                t_items = list(team_armies.values()) if isinstance(team_armies, dict) else list(team_armies)
+                if len(t_items) == 2:
+                    team_lens = [len(getattr(ta, "team_user", None) or []) for ta in t_items]
+                    if all(tl >= 2 for tl in team_lens):
+                        matchup["battle_mode"] = "2v2"
             return matchup
 
         items = anchors_raw.values() if isinstance(anchors_raw, dict) else anchors_raw
         anchor_list = []
         anchor_map_by_id = {}
         clean_my_user = self.username.lower().lstrip("@")
+        owner_id = getattr(self, "_owner_user_id", "")
 
         for item in items:
             val = getattr(item, "value", None) or item
@@ -741,9 +902,9 @@ class StreamerWorker:
             if not user:
                 continue
 
-            u_id = str(getattr(user, "user_id", "") or "")
+            u_id = str(getattr(user, "id", "") or getattr(user, "id_str", "") or getattr(user, "user_id", "") or "")
             display_id = str(getattr(user, "display_id", "") or "").lstrip("@")
-            nick_name = str(getattr(user, "nick_name", "") or "")
+            nick_name = str(getattr(user, "nickname", "") or getattr(user, "nick_name", "") or display_id)
             avatar_thumb = getattr(user, "avatar_thumb", None)
             avatar_url = ""
             if avatar_thumb:
@@ -764,14 +925,23 @@ class StreamerWorker:
         if not anchor_list:
             return matchup
 
+        # Eigenen Streamer identifizieren
+        my_streamers = [
+            a for a in anchor_list
+            if (a["username"] and a["username"].lower() == clean_my_user) or (owner_id and a["user_id"] == owner_id)
+        ]
+        if my_streamers:
+            matchup["streamer_user_id"] = my_streamers[0]["user_id"]
+            matchup["streamer_username"] = my_streamers[0]["username"]
+            opponents = [a for a in anchor_list if a not in my_streamers]
+        else:
+            matchup["streamer_user_id"] = anchor_list[0]["user_id"]
+            matchup["streamer_username"] = anchor_list[0]["username"]
+            opponents = anchor_list[1:]
+
         # 1. Fall: Genau 3 Teilnehmer -> Immer 3er-Match / Jeder-gegen-Jeden (1v1v1)
         if len(anchor_list) == 3:
             matchup["battle_mode"] = "1v1v1"
-            my_streamers = [a for a in anchor_list if a["username"].lower() == clean_my_user]
-            opponents = [a for a in anchor_list if a["username"].lower() != clean_my_user]
-            if not opponents and len(anchor_list) >= 3:
-                opponents = anchor_list[1:]
-
             if len(opponents) > 0:
                 opp1 = opponents[0]
                 matchup["opponent_user_id"] = opp1["user_id"]
@@ -804,10 +974,6 @@ class StreamerWorker:
         if len(anchor_list) >= 4 and not has_2v2_teams:
             # 4er-Einzelmatch (1v1v1v1 / Free-For-All)
             matchup["battle_mode"] = "1v1v1v1"
-            opponents = [a for a in anchor_list if a["username"].lower() != clean_my_user]
-            if len(opponents) < 3 and len(anchor_list) >= 4:
-                opponents = anchor_list[1:4]
-
             if len(opponents) > 0:
                 opp1 = opponents[0]
                 matchup["opponent_user_id"] = opp1["user_id"]
@@ -836,7 +1002,7 @@ class StreamerWorker:
             for team in team_members:
                 t_uids = [str(u) for u in (getattr(team, "user_id", None) or [])]
                 is_my_team = any(
-                    (uid in anchor_map_by_id and anchor_map_by_id[uid]["username"].lower() == clean_my_user)
+                    (uid in anchor_map_by_id and (anchor_map_by_id[uid]["username"].lower() == clean_my_user or (owner_id and uid == owner_id)))
                     for uid in t_uids
                 )
                 if is_my_team:
@@ -849,7 +1015,7 @@ class StreamerWorker:
                 t_users = getattr(t_army, "team_user", None) or []
                 t_uids = [str(getattr(tu, "user_id", "") or "") for tu in t_users]
                 is_my_team = any(
-                    (uid in anchor_map_by_id and anchor_map_by_id[uid]["username"].lower() == clean_my_user)
+                    (uid in anchor_map_by_id and (anchor_map_by_id[uid]["username"].lower() == clean_my_user or (owner_id and uid == owner_id)))
                     for uid in t_uids
                 )
                 if is_my_team:
@@ -860,7 +1026,7 @@ class StreamerWorker:
         if not my_team and len(anchor_list) >= 4:
             my_idx = 0
             for idx, a in enumerate(anchor_list):
-                if a["username"].lower() == clean_my_user:
+                if (a["username"] and a["username"].lower() == clean_my_user) or (owner_id and a["user_id"] == owner_id):
                     my_idx = idx
                     break
             if my_idx < 2:
@@ -871,12 +1037,12 @@ class StreamerWorker:
                 opp_team = anchor_list[:2]
 
         if not my_team:
-            my_team = [a for a in anchor_list if a["username"].lower() == clean_my_user] or [anchor_list[0]]
-            opp_team = [a for a in anchor_list if a["username"].lower() != clean_my_user]
+            my_team = my_streamers or [anchor_list[0]]
+            opp_team = opponents or ([anchor_list[1]] if len(anchor_list) > 1 else [])
 
         teammate = None
         for a in my_team:
-            if a["username"].lower() != clean_my_user:
+            if a["username"].lower() != clean_my_user and (not owner_id or a["user_id"] != owner_id):
                 teammate = a
                 break
 
@@ -949,7 +1115,7 @@ class StreamerWorker:
             else:
                 items = [armies]
 
-            streamer_uid = str((matchup or {}).get("streamer_user_id", "") or "")
+            streamer_uid = str((matchup or {}).get("streamer_user_id", "") or getattr(self, "_owner_user_id", "") or "")
             teammate_uid = str((matchup or {}).get("teammate_user_id", "") or "")
             opp1_uid = str((matchup or {}).get("opponent_user_id", "") or opponent_user_id or "")
             opp2_uid = str((matchup or {}).get("opponent2_user_id", "") or "")
@@ -959,7 +1125,7 @@ class StreamerWorker:
             for idx, item in enumerate(items):
                 val = getattr(item, "value", None) or item
                 hostscore = int(getattr(val, "hostscore", 0) or getattr(val, "team_total_score", 0) or 0)
-                anchor_id = str(getattr(val, "anchor_id_str", "") or getattr(item, "key", "") or "")
+                anchor_id = str(getattr(val, "anchor_id_str", "") or getattr(item, "key", "") or getattr(val, "anchor_id", "") or getattr(val, "id", "") or "")
 
                 user_armies_raw = getattr(val, "user_armies", None)
                 if hasattr(user_armies_raw, "user_armies"):
@@ -1269,6 +1435,8 @@ class StreamerWorker:
             )
 
             with self._lock:
+                self._last_finished_battle_id = battle_id
+                self._last_finished_time = time.time()
                 self._active_battle = None
 
             rank_str = f" (Platz #{computed_rank})" if computed_rank > 0 else ""
@@ -1320,6 +1488,10 @@ class StreamerWorker:
         Verarbeitet LinkMicArmiesEvents bei neuen Geschenken/Punkteständen während des Duells.
         """
         battle_id = str(getattr(event, "battle_id", "") or "")
+        if battle_id and battle_id == getattr(self, "_last_finished_battle_id", "") and (time.time() - getattr(self, "_last_finished_time", 0)) < 45:
+            # Späte Armies-Events für soeben beendetes Battle ignorieren (verhindert Geister-Battles)
+            return
+
         armies = getattr(event, "armies", None) or getattr(event, "team_armies", None)
         if not armies:
             return
@@ -1686,6 +1858,9 @@ class StreamerWorker:
         )
         if created and record:
             coins = int(record["total_coins"])
+            tier = get_donor_tier(coins)
+            if tier:
+                update_cached_donor_tier(sender_username, tier)
             with self._lock:
                 self.diag.gifts_received_session += repeat_count
                 self.diag.coins_received_session += coins
@@ -1697,6 +1872,7 @@ class StreamerWorker:
                 "INFO",
                 f"Gift erfasst: {repeat_count}x {gift_name} ({coins} Coins) von @{sender_username}",
             )
+
 
     def _flush_expired_streaks(self) -> None:
         now = time.monotonic()
@@ -1751,8 +1927,67 @@ class StreamerWorker:
                 event_uid=ps.event_uid,
             )
 
+    def _process_comment_event(self, event: Any) -> None:
+        user = getattr(event, "user", None)
+        u_id = str(getattr(user, "user_id", "") or getattr(user, "id", "") or "")
+        username = str(
+            getattr(user, "unique_id", None)
+            or getattr(user, "username", None)
+            or u_id
+            or "viewer"
+        ).strip().lstrip("@")
+        nickname = str(getattr(user, "nickname", None) or getattr(user, "nick_name", None) or username).strip()
+
+        avatar_url = ""
+        avatar_thumb = getattr(user, "avatar_thumb", None) or getattr(user, "avatar_medium", None)
+        if avatar_thumb:
+            urls = getattr(avatar_thumb, "url_list", None) or []
+            if urls:
+                avatar_url = str(urls[0])
+
+        comment_text = str(getattr(event, "comment", None) or getattr(event, "content", "") or "").strip()
+        if not comment_text:
+            return
+
+        tier = get_cached_donor_tier(username)
+        is_whale = bool(tier)
+
+        with self._lock:
+            session_id = self.diag.session_id
+
+        msg = {
+            "streamer_id": self.streamer_id,
+            "session_id": session_id,
+            "user_id": u_id,
+            "username": username,
+            "nickname": nickname,
+            "avatar_url": avatar_url,
+            "comment": comment_text,
+            "is_whale": is_whale,
+            "whale_tier": tier,
+            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
+
+        with self._chat_buffer_lock:
+            self._chat_buffer.append(msg)
+            if len(self._chat_buffer) > 1000:
+                self._chat_buffer = self._chat_buffer[-1000:]
+
+    def _flush_chat_buffer(self) -> None:
+        with self._chat_buffer_lock:
+            if not self._chat_buffer:
+                return
+            batch = self._chat_buffer
+            self._chat_buffer = []
+
+        try:
+            batch_record_chat_messages(batch)
+        except Exception as exc:
+            logger.error("[@%s] Fehler beim Speichern von Chat-Nachrichten: %s", self.username, exc)
+
 
 class StreamerMonitorManager:
+
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._workers: Dict[str, StreamerWorker] = {}
@@ -1803,7 +2038,14 @@ class StreamerMonitorManager:
                 return []
             self._autostart_done = True
 
+        try:
+            refresh_donor_tier_cache()
+            cleanup_old_chat_messages(days=7)
+        except Exception as exc:
+            logger.debug("Chatlog/Donor Cleanup Fehler bei Autostart: %s", exc)
+
         marked_streamers = get_auto_monitor_streamers()
+
         if not marked_streamers:
             logger.info("Auto-Start: Keine markierten Streamer in der Datenbank gefunden.")
             return []

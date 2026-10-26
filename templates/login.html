@@ -2,8 +2,8 @@
 <html lang="de" data-theme="dark">
 <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>toktracker – Admin Login · Telegram Authentifizierung</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>toktracker – Admin Login · Telegram Gateway</title>
     <link rel="icon" type="image/jpeg" href="/pictures/bot_avatar.jpg" />
     <script>
         (function () {
@@ -12,41 +12,62 @@
                 document.documentElement.setAttribute("data-theme", savedTheme);
             } catch (e) {}
         })();
+
+        // Globale Callback-Funktion für das Telegram Login Widget sofort im Head definieren
+        window.onTelegramAuth = async function (user) {
+            setStatus("Verifiziere Administrator-Berechtigung über Telegram...", "info");
+            try {
+                const res = await fetch("/api/auth/telegram/widget", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(user),
+                });
+                const data = await res.json().catch(function () { return {}; });
+                if (res.ok && data.ok) {
+                    setStatus("✅ Verifizierung erfolgreich! Öffne Admin-Dashboard...", "success");
+                    setTimeout(function () {
+                        window.location.href = data.redirect || "/admin";
+                    }, 350);
+                } else {
+                    setStatus(data.detail || "Authentifizierung fehlgeschlagen: Dein Account besitzt keine Admin-Berechtigung.", "error");
+                }
+            } catch (err) {
+                setStatus("Netzwerkfehler bei der Verifizierung: " + err.message, "error");
+            }
+        };
+
+        function setStatus(message, type) {
+            var box = document.getElementById("loginStatusBox");
+            if (!box) return;
+            if (!message) {
+                box.style.display = "none";
+                return;
+            }
+            box.style.display = "block";
+            box.className = "status-banner " + (type || "info");
+            box.textContent = message;
+        }
     </script>
     <link rel="stylesheet" href="/static/style.css" />
     <style>
-        .login-wrap {
+        .login-centered-container {
             max-width: 520px;
-            margin: 48px auto;
-            padding: 0 20px;
+            margin: 48px auto 80px auto;
         }
-        .login-card {
-            background: var(--bg-surface);
-            border: 1px solid var(--border-color);
-            border-top: 2px solid var(--border-strong);
-            padding: 24px;
-        }
-        .otp-input {
-            width: 100%;
-            height: 44px !important;
-            font-family: "JetBrains Mono", Consolas, Monaco, monospace;
-            font-size: 20px !important;
-            font-weight: 800;
-            letter-spacing: 6px;
-            text-align: center;
-        }
-        .login-step {
-            border-top: 1px solid var(--border-subtle);
-            padding-top: 16px;
-            margin-top: 16px;
+        @media (max-width: 640px) {
+            .login-centered-container {
+                margin: 20px auto 40px auto;
+                padding: 0 4px;
+            }
         }
         .status-banner {
-            margin-top: 14px;
+            margin-bottom: 14px;
             padding: 10px 12px;
             border: 1px solid var(--border-color);
             background: var(--bg-subtle);
             font-family: "JetBrains Mono", Consolas, Monaco, monospace;
             font-size: 12px;
+            line-height: 1.45;
             display: none;
         }
         .status-banner.error {
@@ -55,13 +76,31 @@
             background: var(--tag-danger-bg);
         }
         .status-banner.success {
-            border-color: var(--border-strong);
-            color: var(--text-strong);
+            border-color: #10b981;
+            color: #34d399;
+            background: rgba(16, 185, 129, 0.12);
+        }
+        .status-banner.info {
+            border-color: #38bdf8;
+            color: #38bdf8;
+            background: rgba(56, 189, 248, 0.1);
+        }
+        .login-widget-area {
+            background: var(--bg-subtle);
+            border: 1px solid var(--border-color);
+            padding: 24px 16px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100px;
+            text-align: center;
         }
     </style>
 </head>
 <body>
 
+<!-- Kopfbereich: Brand, Gateway-Status & Navigation -->
 <header class="app-header">
     <div class="header-inner">
         <a href="/" class="brand-block">
@@ -69,177 +108,157 @@
             <div class="brand-text">
                 <div class="brand-title-row">
                     <h1 class="brand-title">toktracker</h1>
-                    <span class="brand-mode-tag">ADMIN LOGIN</span>
+                    <span class="brand-mode-tag">ADMIN GATEWAY</span>
                 </div>
-                <span class="brand-subtitle">TELEGRAM AUTHENTICATION · SECURITY GATEWAY</span>
+                <span class="brand-subtitle">LIVE EARNINGS · ANALYTICS · SECURITY GATEWAY</span>
             </div>
         </a>
         <div class="status-strip">
+            <span class="pill"><span class="live-dot"></span>GATEWAY: <strong>ACTIVE</strong></span>
+            <span class="pill hide-sm">BOT: <strong>@{{ telegram_bot_username }}</strong></span>
+            <span class="pill hide-sm">TELEGRAM: <strong>{{ telegram_state | upper }}</strong></span>
             <a class="btn-link sm" href="/">← Öffentliches User-Panel</a>
-            <button type="button" id="btnThemeToggle" class="mono sm">Theme: DARK</button>
+            <button type="button" id="btnThemeToggle" class="mono sm" title="Theme wechseln">Theme: DARK</button>
         </div>
     </div>
 </header>
 
-<main class="login-wrap">
-    <div class="login-card">
-        <h2>Admin-Panel Authentifizierung</h2>
-        <div class="section-hint" style="margin-top:6px;">
-            Der Zugriff auf <code>/admin</code> ist geschützt. Authentifiziere dich per <strong>1-Klick-Freigabe</strong> oder <strong>6-stelligem Einmal-Code</strong> über den hinterlegten Telegram-Admin-Account.
+<!-- Navigationsleiste -->
+<nav class="nav-bar">
+    <div class="nav-inner">
+        <div class="tab-list">
+            <span class="tab-btn active" style="cursor: default;">
+                🔐 Administrator-Zugang &amp; Authentifizierung
+            </span>
         </div>
+        <div class="toolbar-controls">
+            <a class="btn-link sm mono" href="/miniapp" target="_blank" rel="noopener">📱 Mini-App ↗</a>
+            <a class="btn-link primary sm" href="/">Public Panel →</a>
+        </div>
+    </div>
+</nav>
 
-        <!-- Schritt 1: Push-Anfrage an Telegram senden -->
-        <div class="login-step">
-            <div class="field-group" style="margin-bottom:10px;">
-                <label for="inputAdminHint">Optionale Admin-Kennung (Telegram @username oder ID)</label>
-                <input type="text" id="inputAdminHint" placeholder="Leer lassen für alle hinterlegten Admins" />
+<main class="container">
+    <div class="login-centered-container">
+        <!-- Zentrierte Login-Box -->
+        <div class="box">
+            <div class="box-header">
+                <div>
+                    <h2>Telegram OAuth Login</h2>
+                    <div class="section-hint">Melde dich mit deinem autorisierten Telegram-Konto an:</div>
+                </div>
+                <span class="brand-mode-tag public">OFFIZIELLES WIDGET</span>
             </div>
-            <button type="button" id="btnRequestTelegram" class="primary" style="width:100%; height:36px;">
-                Einmal-Code &amp; 1-Klick-Freigabe per Telegram senden
-            </button>
-            <div class="section-hint mono" style="margin-top:8px;">
-                Alternativ kannst du jederzeit direkt im Telegram-Bot <code>/login</code> eingeben, um einen Einmal-Code zu erhalten.
-                {% if telegram_bot_username %}
-                (<a href="https://t.me/{{ telegram_bot_username.lstrip('@') }}" target="_blank" rel="noopener">{{ telegram_bot_username }} öffnen ↗</a>)
-                {% endif %}
+
+            <!-- Status-Banner für Fehler oder Erfolgsmeldungen -->
+            <div id="loginStatusBox" class="status-banner {% if error_message %}error{% endif %}" {% if error_message %}style="display:block;"{% endif %}>
+                {{ error_message or "" }}
+            </div>
+
+            <!-- Telegram Widget Container -->
+            <div class="login-widget-area">
+                <p class="section-hint mono" style="margin-top: 0; margin-bottom: 14px;">
+                    Klicke auf den Button, um dich via Telegram anzumelden:
+                </p>
+                <div id="telegramWidgetWrap">
+                    {% if telegram_bot_username %}
+                        <script
+                            async
+                            src="https://telegram.org/js/telegram-widget.js?22"
+                            data-telegram-login="{{ telegram_bot_username }}"
+                            data-size="large"
+                            data-radius="0"
+                            data-onauth="onTelegramAuth(user)"
+                            data-auth-url="/api/auth/telegram/widget-callback"
+                            data-request-access="write"
+                        ></script>
+                    {% else %}
+                        <div style="color: var(--tag-danger-text); font-size: 12px; font-family: 'JetBrains Mono', monospace;">
+                            ⚠️ Telegram Bot-Benutzername ist nicht konfiguriert.
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Notfall-Login (Passwort) -->
+            <div style="margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border-subtle);">
+                <details style="cursor: pointer;">
+                    <summary class="mono" style="font-size: 11.5px; color: var(--text-muted); user-select: none;">
+                        🔐 Notfall-Login mit Admin-Passwort einblenden
+                    </summary>
+                    <form id="formEmergencyPassword" class="inline-form" style="margin-top: 10px; display: flex; gap: 6px;">
+                        <input type="password" id="inputEmergencyPassword" placeholder="Admin-Passwort aus .env" required style="flex: 1;" />
+                        <button type="submit" class="primary sm">Login →</button>
+                    </form>
+                </details>
             </div>
         </div>
-
-        <!-- Status-Box (1-Klick Polling / Fehlermeldungen) -->
-        <div id="loginStatusBox" class="status-banner"></div>
-
-        <!-- Schritt 2: 6-stelligen Code eingeben -->
-        <form id="formVerifyCode" class="login-step">
-            <div class="field-group" style="margin-bottom:12px;">
-                <label for="inputOtpCode">6-stelliger Telegram Einmal-Code</label>
-                <input
-                    type="text"
-                    id="inputOtpCode"
-                    class="otp-input"
-                    maxlength="32"
-                    autocomplete="one-time-code"
-                    placeholder="------"
-                    required
-                />
-            </div>
-            <button type="submit" class="primary" style="width:100%; height:36px;">
-                Code prüfen &amp; Admin-Panel öffnen →
-            </button>
-        </form>
     </div>
 </main>
 
 <footer class="app-footer">
-    <div>toktracker · LIVE EARNINGS · ANALYTICS</div>
-    <div><a href="/">Öffentliches User-Panel</a></div>
+    <div style="width: 100%; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+        <div>toktracker &middot; LIVE TIKTOK EARNINGS &amp; BATTLE TRACKER</div>
+        <div>
+            <a href="/">Public Panel</a> &middot; <a href="/miniapp">Mini-App</a> &middot; <a href="/admin">Admin Console</a>
+        </div>
+    </div>
 </footer>
 
 <script>
-    let activeChallengeId = null;
-    let pollTimer = null;
-
     function applyTheme(theme) {
-        const normalized = theme === "light" ? "light" : "dark";
+        var normalized = theme === "light" ? "light" : "dark";
         document.documentElement.setAttribute("data-theme", normalized);
         try {
             localStorage.setItem("toktracker_theme", normalized);
         } catch (e) {}
-        const btn = document.getElementById("btnThemeToggle");
+        var btn = document.getElementById("btnThemeToggle");
         if (btn) {
             btn.textContent = normalized === "dark" ? "Theme: DARK" : "Theme: LIGHT";
         }
     }
 
-    function setStatus(message, type) {
-        const box = document.getElementById("loginStatusBox");
-        box.style.display = "block";
-        box.className = "status-banner" + (type ? " " + type : "");
-        box.textContent = message;
-    }
-
-    function startPollingChallenge(challengeId) {
-        if (pollTimer) clearInterval(pollTimer);
-        pollTimer = setInterval(async () => {
-            if (!challengeId) return;
-            try {
-                const res = await fetch(`/api/auth/telegram/poll?challenge_id=${encodeURIComponent(challengeId)}`);
-                if (!res.ok) return;
-                const data = await res.json();
-                if (data.status === "approved") {
-                    clearInterval(pollTimer);
-                    setStatus("Freigabe in Telegram bestätigt! Weiterleitung zum Admin-Panel...", "success");
-                    window.location.href = data.redirect || "/admin";
-                } else if (data.status === "rejected") {
-                    clearInterval(pollTimer);
-                    setStatus("Die Login-Anfrage wurde in Telegram abgelehnt.", "error");
-                } else if (data.status === "expired") {
-                    clearInterval(pollTimer);
-                    setStatus("Die Login-Anfrage ist abgelaufen. Bitte fordere einen neuen Code an.", "error");
-                }
-            } catch (e) {}
-        }, 2000);
-    }
-
-    document.addEventListener("DOMContentLoaded", () => {
+    document.addEventListener("DOMContentLoaded", function () {
         applyTheme(document.documentElement.getAttribute("data-theme") || "dark");
 
-        document.getElementById("btnThemeToggle").addEventListener("click", () => {
-            const next = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
-            applyTheme(next);
-        });
+        var btnTheme = document.getElementById("btnThemeToggle");
+        if (btnTheme) {
+            btnTheme.addEventListener("click", function () {
+                var current = document.documentElement.getAttribute("data-theme") || "dark";
+                var next = current === "light" ? "dark" : "light";
+                applyTheme(next);
+            });
+        }
 
-        document.getElementById("btnRequestTelegram").addEventListener("click", async () => {
-            const hint = document.getElementById("inputAdminHint").value.trim();
-            setStatus("Sende Login-Anfrage an Telegram-Bot...", "");
-            try {
-                const res = await fetch("/api/auth/telegram/request", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ identifier: hint || null }),
-                });
-                const data = await res.json();
-                if (!res.ok) {
-                    setStatus(data.detail || "Fehler beim Anfordern des Login-Codes.", "error");
-                    return;
+        // Notfall-Passwort Formular
+        var formPassword = document.getElementById("formEmergencyPassword");
+        if (formPassword) {
+            formPassword.addEventListener("submit", async function (e) {
+                e.preventDefault();
+                var pwd = document.getElementById("inputEmergencyPassword").value;
+                if (!pwd) return;
+
+                setStatus("Prüfe Admin-Passwort...", "info");
+                try {
+                    var res = await fetch("/api/auth/password", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ password: pwd }),
+                    });
+                    var data = await res.json().catch(function () { return {}; });
+                    if (res.ok && data.ok) {
+                        setStatus("✅ Passwort akzeptiert! Öffne Admin-Dashboard...", "success");
+                        setTimeout(function () {
+                            window.location.href = data.redirect || "/admin";
+                        }, 350);
+                    } else {
+                        setStatus(data.detail || "Ungültiges Admin-Passwort.", "error");
+                    }
+                } catch (err) {
+                    setStatus("Netzwerkfehler: " + err.message, "error");
                 }
-                activeChallengeId = data.challenge_id;
-                setStatus(
-                    data.message + " (Warte auf 1-Klick-Freigabe in Telegram oder Code-Eingabe unten...)",
-                    "success"
-                );
-                startPollingChallenge(activeChallengeId);
-                document.getElementById("inputOtpCode").focus();
-            } catch (e) {
-                setStatus("Netzwerkfehler beim Senden der Anfrage.", "error");
-            }
-        });
-
-        document.getElementById("formVerifyCode").addEventListener("submit", async (e) => {
-            e.preventDefault();
-            const code = document.getElementById("inputOtpCode").value.trim();
-            if (!code) return;
-
-            try {
-                const res = await fetch("/api/auth/telegram/verify", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        code: code,
-                        challenge_id: activeChallengeId,
-                    }),
-                });
-                const data = await res.json();
-                if (res.ok && data.ok) {
-                    if (pollTimer) clearInterval(pollTimer);
-                    setStatus("Authentifizierung erfolgreich! Öffne Admin-Panel...", "success");
-                    window.location.href = data.redirect || "/admin";
-                } else {
-                    setStatus(data.detail || "Ungültiger oder abgelaufener Einmal-Code.", "error");
-                }
-            } catch (e) {
-                setStatus("Fehler bei der Code-Prüfung.", "error");
-            }
-        });
+            });
+        }
     });
 </script>
 </body>
